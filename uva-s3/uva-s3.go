@@ -3,16 +3,18 @@ package uva_s3
 import "fmt"
 
 // errors
+
 var ErrNoGlacierSupport = fmt.Errorf("glacier support not configured")
+var ErrNotFound = fmt.Errorf("the specified bucket or key does not exist")
 
 type UvaS3 interface {
-	GetToFile(UvaS3Object, string) error
-	GetToBuffer(UvaS3Object) ([]byte, error)
-	PutFromFile(UvaS3Object, string) error
-	PutFromBuffer(UvaS3Object, []byte) error
-	StatObject(UvaS3Object) (UvaS3Object, error)
-	RestoreObject(UvaS3Object) error
-	DeleteObject(UvaS3Object) error
+	StatObject(UvaS3Object) (UvaS3Object, error) // get object attributes
+	GetToFile(UvaS3Object, string) error         // get contents of an object to a local file
+	GetToBuffer(UvaS3Object) ([]byte, error)     // get contents of an object to a supplied buffer
+	PutFromFile(UvaS3Object, string) error       // put contents of a file to the named object
+	PutFromBuffer(UvaS3Object, []byte) error     // put contents of the supplied buffer to a named object
+	RestoreObject(UvaS3Object) error             // initiate the restore of an object from glacier
+	DeleteObject(UvaS3Object) error              // delete the named object
 }
 
 type UvaS3Object interface {
@@ -29,6 +31,7 @@ type UvaS3Object interface {
 // UvaS3Config our configuration structure
 type UvaS3Config struct {
 	GlacierSupport bool // do we expect Glacier objects
+	Logging        bool // do we log
 }
 
 // NewUvaS3 factory for our S3 interface
