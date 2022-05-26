@@ -76,8 +76,9 @@ func (impl *uvaS3Impl) GetToFile(obj UvaS3Object, location string) error {
 			case s3.ErrCodeNoSuchKey:
 				//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
 				return ErrNotFound
-			//case s3.ErrCodeInvalidObjectState:
-			//	log.Printf("ERROR: inappropriate storage class for get (%s)", aerr.Error())
+			case s3.ErrCodeInvalidObjectState:
+				//	log.Printf("ERROR: inappropriate storage class for get (%s)", aerr.Error())
+				return ErrObjectInGlacier
 			default:
 				impl.logError(fmt.Sprintf("%s (%s)", aerr.Code(), aerr.Error()))
 			}
@@ -92,7 +93,7 @@ func (impl *uvaS3Impl) GetToFile(obj UvaS3Object, location string) error {
 
 	//	// I think there are times when the download runs out of space but it is not reported as an error so
 	//	// we validate the expected file size against the actually downloaded size
-	if obj.Size() != 0 && obj.Size() != fileSize {
+	if obj.Size() != -1 && obj.Size() != fileSize {
 
 		// remove the file
 		_ = os.Remove(location)
@@ -105,10 +106,117 @@ func (impl *uvaS3Impl) GetToFile(obj UvaS3Object, location string) error {
 }
 
 func (impl *uvaS3Impl) GetToBuffer(obj UvaS3Object) ([]byte, error) {
-	return nil, nil
+
+	expectedSize := obj.Size()
+	// if we do not yet know the filesize
+	if expectedSize == -1 {
+		s, err := impl.StatObject(obj)
+		if err != nil {
+			return nil, err
+		}
+		expectedSize = s.Size()
+	}
+
+	impl.logInfo(fmt.Sprintf("get from s3://%s/%s (%d bytes)", obj.BucketName(), obj.KeyName(), expectedSize))
+
+	start := time.Now()
+
+	backingBuff := make([]byte, 0, expectedSize)
+	writeAtBuff := aws.NewWriteAtBuffer(backingBuff)
+	downloadSize, err := impl.downloader.Download(writeAtBuff,
+		&s3.GetObjectInput{
+			Bucket: aws.String(obj.BucketName()),
+			Key:    aws.String(obj.KeyName()),
+		})
+
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchBucket:
+				//log.Printf("ERROR: bucket does not exist (%s)", aerr.Error())
+				return nil, ErrNotFound
+			case s3.ErrCodeNoSuchKey:
+				//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
+				return nil, ErrNotFound
+			case s3.ErrCodeInvalidObjectState:
+				//	log.Printf("ERROR: inappropriate storage class for get (%s)", aerr.Error())
+				return nil, ErrObjectInGlacier
+			default:
+				impl.logError(fmt.Sprintf("%s (%s)", aerr.Code(), aerr.Error()))
+			}
+			return nil, aerr
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			impl.logError(fmt.Sprintf("%s", err.Error()))
+			return nil, err
+		}
+	}
+
+	// we validate the expected file size against the actually downloaded size
+	if expectedSize != downloadSize {
+		impl.logWarn(fmt.Sprintf("get s3://%s/%s... expected %d bytes, received %d bytes", obj.BucketName(), obj.KeyName(), expectedSize, downloadSize))
+	}
+
+	duration := time.Since(start)
+	impl.logInfo(fmt.Sprintf("get of s3://%s/%s complete in %0.2f seconds", obj.BucketName(), obj.KeyName(), duration.Seconds()))
+
+	return writeAtBuff.Bytes(), nil
 }
 
 func (impl *uvaS3Impl) PutFromFile(obj UvaS3Object, location string) error {
+
+	source := fmt.Sprintf("s3://%s/%s", obj.BucketName(), obj.KeyName())
+
+	impl.logInfo(fmt.Sprintf("put from %s to %s", location, source))
+
+	// open the file
+	file, err := os.Open(location)
+	if err != nil {
+		// assume the error is file not found... probably reasonable
+		return os.ErrNotExist
+	}
+	defer file.Close()
+
+	// get the filesize
+	s, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	fileSize := s.Size()
+
+	// Upload the file to S3.
+	start := time.Now()
+	_, err = impl.uploader.Upload(&s3manager.UploadInput{
+		Bucket: aws.String(obj.BucketName()),
+		Key:    aws.String(obj.KeyName()),
+		Body:   file,
+	})
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchBucket:
+				//log.Printf("ERROR: bucket does not exist (%s)", aerr.Error())
+				return ErrNotFound
+			case s3.ErrCodeNoSuchKey:
+				//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
+				return ErrNotFound
+			//case s3.ErrCodeInvalidObjectState:
+			//	log.Printf("ERROR: inappropriate storage class for get (%s)", aerr.Error())
+			default:
+				impl.logError(fmt.Sprintf("%s (%s)", aerr.Code(), aerr.Error()))
+			}
+			return aerr
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			impl.logError(fmt.Sprintf("%s", err.Error()))
+			return err
+		}
+	}
+
+	duration := time.Since(start)
+	impl.logInfo(fmt.Sprintf("put %s complete in %0.2f seconds (%d bytes, %0.2f bytes/sec)", source, duration.Seconds(), fileSize, float64(fileSize)/duration.Seconds()))
 	return nil
 }
 
@@ -141,7 +249,7 @@ func (impl *uvaS3Impl) StatObject(obj UvaS3Object) (UvaS3Object, error) {
 			return nil, err
 		}
 		//} else {
-		//log.Printf("INFO: %s", result)
+		//	log.Printf("INFO: %s", result)
 	}
 
 	o := uvaS3ObjectImpl{bucket: obj.BucketName(), key: obj.KeyName()}
@@ -155,10 +263,6 @@ func (impl *uvaS3Impl) StatObject(obj UvaS3Object) (UvaS3Object, error) {
 }
 
 func (impl *uvaS3Impl) RestoreObject(obj UvaS3Object) error {
-
-	if impl.config.GlacierSupport == false {
-		// may not need???
-	}
 
 	return nil
 }
@@ -174,8 +278,28 @@ func (impl *uvaS3Impl) DeleteObject(obj UvaS3Object) error {
 			Key:    aws.String(obj.KeyName()),
 		})
 	if err != nil {
-		impl.logError(fmt.Sprintf("deleting s3://%s/%s (%s)", obj.BucketName(), obj.KeyName(), err.Error()))
-		return err
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchBucket:
+				//log.Printf("ERROR: bucket does not exist (%s)", aerr.Error())
+				return ErrNotFound
+			case s3.ErrCodeNoSuchKey:
+				//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
+				return ErrNotFound
+			//case s3.ErrCodeInvalidObjectState:
+			//	log.Printf("ERROR: inappropriate storage class for get (%s)", aerr.Error())
+			default:
+				impl.logError(fmt.Sprintf("%s (%s)", aerr.Code(), aerr.Error()))
+			}
+			return aerr
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			impl.logError(fmt.Sprintf("%s", err.Error()))
+			return err
+		}
+		//} else {
+		//log.Printf("INFO: %s", result)
 	}
 
 	duration := time.Since(start)
@@ -183,9 +307,19 @@ func (impl *uvaS3Impl) DeleteObject(obj UvaS3Object) error {
 	return nil
 }
 
+//
+// helpers
+//
+
 func (impl *uvaS3Impl) logInfo(message string) {
 	if impl.config.Logging == true {
 		log.Printf("INFO: %s", message)
+	}
+}
+
+func (impl *uvaS3Impl) logWarn(message string) {
+	if impl.config.Logging == true {
+		log.Printf("WARNING: %s", message)
 	}
 }
 

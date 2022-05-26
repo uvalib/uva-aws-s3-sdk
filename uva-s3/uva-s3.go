@@ -4,8 +4,8 @@ import "fmt"
 
 // errors
 
-var ErrNoGlacierSupport = fmt.Errorf("glacier support not configured")
 var ErrNotFound = fmt.Errorf("the specified bucket or key does not exist")
+var ErrObjectInGlacier = fmt.Errorf("the specified object is archived in glacier")
 
 type UvaS3 interface {
 	StatObject(UvaS3Object) (UvaS3Object, error) // get object attributes
@@ -30,8 +30,7 @@ type UvaS3Object interface {
 
 // UvaS3Config our configuration structure
 type UvaS3Config struct {
-	GlacierSupport bool // do we expect Glacier objects
-	Logging        bool // do we log
+	Logging bool // do we log
 }
 
 // NewUvaS3 factory for our S3 interface
@@ -44,7 +43,8 @@ func NewUvaS3(config UvaS3Config) (UvaS3, error) {
 
 // NewUvaS3Object factory for our S3 object (really a helper)
 func NewUvaS3Object(bucketName string, keyName string) UvaS3Object {
-	return uvaS3ObjectImpl{bucket: bucketName, key: keyName}
+	// we use -1 as a sentinel value
+	return uvaS3ObjectImpl{bucket: bucketName, key: keyName, size: -1}
 }
 
 //
