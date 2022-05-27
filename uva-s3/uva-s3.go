@@ -4,8 +4,10 @@ import "fmt"
 
 // errors
 
+var ErrBadParameter = fmt.Errorf("bad parameter")
 var ErrNotFound = fmt.Errorf("the specified bucket or key does not exist")
 var ErrObjectInGlacier = fmt.Errorf("the specified object is archived in glacier")
+var ErrCannotRestore = fmt.Errorf("the specified object cannot be restored as it is NOT archived in glacier")
 
 type UvaS3 interface {
 	StatObject(UvaS3Object) (UvaS3Object, error) // get object attributes
@@ -13,7 +15,7 @@ type UvaS3 interface {
 	GetToBuffer(UvaS3Object) ([]byte, error)     // get contents of an object to a supplied buffer
 	PutFromFile(UvaS3Object, string) error       // put contents of a file to the named object
 	PutFromBuffer(UvaS3Object, []byte) error     // put contents of the supplied buffer to a named object
-	RestoreObject(UvaS3Object) error             // initiate the restore of an object from glacier
+	RestoreObject(UvaS3Object, int, int64) error // initiate the restore of an object from glacier
 	DeleteObject(UvaS3Object) error              // delete the named object
 }
 
@@ -27,6 +29,14 @@ type UvaS3Object interface {
 
 	// more stuff
 }
+
+// used for the type of restore
+const (
+	RESTORE_EXPEDITED = iota // Expedited retrievals allow you to quickly access your data, typically made available within 1–5 minutes
+	RESTORE_STANDARD         // Standard retrievals allow you to access any of your archived objects within several hours
+	RESTORE_BULK             // Bulk retrievals are the lowest-cost retrieval option and typically finish within 5–12 hours
+	RESTORE_UNDEFINED
+)
 
 // UvaS3Config our configuration structure
 type UvaS3Config struct {

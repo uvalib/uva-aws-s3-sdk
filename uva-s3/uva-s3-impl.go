@@ -1,6 +1,7 @@
 package uva_s3
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -49,6 +50,11 @@ func newUvaS3(config UvaS3Config) (UvaS3, error) {
 }
 
 func (impl *uvaS3Impl) GetToFile(obj UvaS3Object, location string) error {
+
+	// validate inbound parameters
+	if impl.validateS3Obj(obj) == false || len(location) == 0 {
+		return ErrBadParameter
+	}
 
 	source := fmt.Sprintf("s3://%s/%s", obj.BucketName(), obj.KeyName())
 
@@ -106,6 +112,11 @@ func (impl *uvaS3Impl) GetToFile(obj UvaS3Object, location string) error {
 }
 
 func (impl *uvaS3Impl) GetToBuffer(obj UvaS3Object) ([]byte, error) {
+
+	// validate inbound parameters
+	if impl.validateS3Obj(obj) == false {
+		return nil, ErrBadParameter
+	}
 
 	expectedSize := obj.Size()
 	// if we do not yet know the filesize
@@ -166,6 +177,11 @@ func (impl *uvaS3Impl) GetToBuffer(obj UvaS3Object) ([]byte, error) {
 
 func (impl *uvaS3Impl) PutFromFile(obj UvaS3Object, location string) error {
 
+	// validate inbound parameters
+	if impl.validateS3Obj(obj) == false || len(location) == 0 {
+		return ErrBadParameter
+	}
+
 	source := fmt.Sprintf("s3://%s/%s", obj.BucketName(), obj.KeyName())
 
 	impl.logInfo(fmt.Sprintf("put from %s to %s", location, source))
@@ -198,9 +214,9 @@ func (impl *uvaS3Impl) PutFromFile(obj UvaS3Object, location string) error {
 			case s3.ErrCodeNoSuchBucket:
 				//log.Printf("ERROR: bucket does not exist (%s)", aerr.Error())
 				return ErrNotFound
-			case s3.ErrCodeNoSuchKey:
-				//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
-				return ErrNotFound
+			//case s3.ErrCodeNoSuchKey:
+			//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
+			//	return ErrNotFound
 			//case s3.ErrCodeInvalidObjectState:
 			//	log.Printf("ERROR: inappropriate storage class for get (%s)", aerr.Error())
 			default:
@@ -221,10 +237,67 @@ func (impl *uvaS3Impl) PutFromFile(obj UvaS3Object, location string) error {
 }
 
 func (impl *uvaS3Impl) PutFromBuffer(obj UvaS3Object, buffer []byte) error {
+
+	// validate inbound parameters
+	if impl.validateS3Obj(obj) == false || buffer == nil {
+		return ErrBadParameter
+	}
+
+	bucket := obj.BucketName()
+	key := obj.KeyName()
+	size := len(buffer)
+	impl.logInfo(fmt.Sprintf("put to s3://%s/%s (%d bytes)", bucket, key, size))
+
+	upParams := &s3manager.UploadInput{
+		Bucket: &bucket,
+		Key:    &key,
+		Body:   bytes.NewReader(buffer),
+	}
+
+	start := time.Now()
+
+	// Perform an upload.
+	_, err := impl.uploader.Upload(upParams)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchBucket:
+				//log.Printf("ERROR: bucket does not exist (%s)", aerr.Error())
+				return ErrNotFound
+			//case s3.ErrCodeNoSuchKey:
+			//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
+			//	return ErrNotFound
+			//case s3.ErrCodeInvalidObjectState:
+			//	log.Printf("ERROR: inappropriate storage class for get (%s)", aerr.Error())
+			default:
+				impl.logError(fmt.Sprintf("%s (%s)", aerr.Code(), aerr.Error()))
+			}
+			return aerr
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			impl.logError(fmt.Sprintf("%s", err.Error()))
+			return err
+		}
+	}
+
+	// we validate the expected file size against the actually uploaded size
+	//if int64( size ) != uploadSize {
+	//	return nil, fmt.Errorf("upload failure. expected %d bytes, actual %d bytes", contentSize, uploadSize)
+	//}
+
+	duration := time.Since(start)
+	impl.logInfo(fmt.Sprintf("put of s3://%s/%s complete in %0.2f seconds", bucket, key, duration.Seconds()))
+
 	return nil
 }
 
 func (impl *uvaS3Impl) StatObject(obj UvaS3Object) (UvaS3Object, error) {
+
+	// validate inbound parameters
+	if impl.validateS3Obj(obj) == false {
+		return nil, ErrBadParameter
+	}
 
 	input := &s3.HeadObjectInput{
 		Bucket: aws.String(obj.BucketName()),
@@ -262,12 +335,75 @@ func (impl *uvaS3Impl) StatObject(obj UvaS3Object) (UvaS3Object, error) {
 	return o, nil
 }
 
-func (impl *uvaS3Impl) RestoreObject(obj UvaS3Object) error {
+func (impl *uvaS3Impl) RestoreObject(obj UvaS3Object, tier int, days int64) error {
 
+	// validate inbound parameters
+	if impl.validateS3Obj(obj) == false {
+		return ErrBadParameter
+	}
+
+	tierStr := ""
+	switch tier {
+	case RESTORE_EXPEDITED:
+		tierStr = "Expedited"
+	case RESTORE_STANDARD:
+		tierStr = "Standard"
+	case RESTORE_BULK:
+		tierStr = "Bulk"
+	default:
+		return ErrBadParameter
+	}
+
+	impl.logInfo(fmt.Sprintf("restoring: s3://%s/%s tier: %s, %d for days", obj.BucketName(), obj.KeyName(), tierStr, days))
+
+	input := &s3.RestoreObjectInput{
+		Bucket: aws.String(obj.BucketName()),
+		Key:    aws.String(obj.KeyName()),
+		RestoreRequest: &s3.RestoreRequest{
+			Days: aws.Int64(days),
+			GlacierJobParameters: &s3.GlacierJobParameters{
+				Tier: aws.String(tierStr),
+			},
+		},
+	}
+
+	_, err := impl.svc.RestoreObject(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			//case s3.ErrCodeObjectAlreadyInActiveTierError:
+			//	log.Printf("ERROR: already restored (%s)", aerr.Error())
+			case s3.ErrCodeInvalidObjectState:
+				//log.Printf("ERROR: inappropriate storage class for restore (%s)", aerr.Error())
+				return ErrCannotRestore
+			case s3.ErrCodeNoSuchBucket:
+				//log.Printf("ERROR: bucket does not exist (%s)", aerr.Error())
+				return ErrNotFound
+			case s3.ErrCodeNoSuchKey:
+				//log.Printf("ERROR: key does not exist (%s)", aerr.Error())
+				return ErrNotFound
+			default:
+				impl.logError(fmt.Sprintf("%s (%s)", aerr.Code(), aerr.Error()))
+			}
+			return aerr
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			impl.logError(fmt.Sprintf("%s", err.Error()))
+			return err
+		}
+		//} else {
+		//log.Printf("INFO: %s", result)
+	}
 	return nil
 }
 
 func (impl *uvaS3Impl) DeleteObject(obj UvaS3Object) error {
+
+	// validate inbound parameters
+	if impl.validateS3Obj(obj) == false {
+		return ErrBadParameter
+	}
 
 	impl.logInfo(fmt.Sprintf("deleting s3://%s/%s", obj.BucketName(), obj.KeyName()))
 
@@ -328,6 +464,17 @@ func (impl *uvaS3Impl) logError(message string) {
 		log.Printf("ERROR: %s", message)
 	}
 }
+
+func (impl *uvaS3Impl) validateS3Obj(o UvaS3Object) bool {
+	if len(o.BucketName()) == 0 || len(o.KeyName()) == 0 {
+		return false
+	}
+	return true
+}
+
+//
+// uvaS3ObjectImpl implementation methods
+//
 
 func (impl uvaS3ObjectImpl) BucketName() string {
 	return impl.bucket

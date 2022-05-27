@@ -1,6 +1,7 @@
 package uva_s3
 
 import (
+	"io/ioutil"
 	"os"
 	"testing"
 )
@@ -21,8 +22,6 @@ var glacierKeyName = "000031989/000031989_0002.tif"
 //
 
 func TestStatObjectStandardHappyDay(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// ensure we have a test object available
@@ -61,8 +60,6 @@ func TestStatObjectStandardHappyDay(t *testing.T) {
 }
 
 func TestStatObjectGlacierHappyDay(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -98,8 +95,6 @@ func TestStatObjectGlacierHappyDay(t *testing.T) {
 }
 
 func TestStatObjectBadBucketName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -112,8 +107,6 @@ func TestStatObjectBadBucketName(t *testing.T) {
 }
 
 func TestStatObjectBadKeyName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -130,8 +123,6 @@ func TestStatObjectBadKeyName(t *testing.T) {
 //
 
 func TestGetToFileHappyDay(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// ensure we have a test object available and delete the local sink file
@@ -163,8 +154,6 @@ func TestGetToFileHappyDay(t *testing.T) {
 }
 
 func TestGetToFileBadBucketName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -177,8 +166,6 @@ func TestGetToFileBadBucketName(t *testing.T) {
 }
 
 func TestGetToFileBadKeyName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -191,8 +178,6 @@ func TestGetToFileBadKeyName(t *testing.T) {
 }
 
 func TestGetToFileGlacierObject(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object
@@ -209,8 +194,6 @@ func TestGetToFileGlacierObject(t *testing.T) {
 //
 
 func TestGetToBufferHappyDay(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// ensure we have a test object available and delete the local sink file
@@ -235,8 +218,6 @@ func TestGetToBufferHappyDay(t *testing.T) {
 }
 
 func TestGetToBufferGlacierObject(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object
@@ -249,8 +230,6 @@ func TestGetToBufferGlacierObject(t *testing.T) {
 }
 
 func TestGetToBufferBadBucketName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -263,8 +242,6 @@ func TestGetToBufferBadBucketName(t *testing.T) {
 }
 
 func TestGetToBufferBadKeyName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -281,8 +258,6 @@ func TestGetToBufferBadKeyName(t *testing.T) {
 //
 
 func TestPutFromFileHappyDay(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// delete the object
@@ -311,8 +286,6 @@ func TestPutFromFileHappyDay(t *testing.T) {
 }
 
 func TestPutFromFileBadBucketName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -325,8 +298,6 @@ func TestPutFromFileBadBucketName(t *testing.T) {
 }
 
 func TestPutFromFileBadFileName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object details
@@ -342,17 +313,110 @@ func TestPutFromFileBadFileName(t *testing.T) {
 // PutFromBuffer method invariant tests
 //
 
+func TestPutFromBufferHappyDay(t *testing.T) {
+	uvas3 := testSetup(t)
+
+	// delete the object
+	o := goodS3Object()
+	err := uvas3.DeleteObject(o)
+	if err != nil {
+		t.Fatalf("%s\n", err.Error())
+	}
+
+	b := bufferFromFile(t, goodSourceFile)
+	err = uvas3.PutFromBuffer(o, b)
+	if err != nil {
+		t.Fatalf("%s\n", err.Error())
+	}
+
+	// get uploaded object details
+	s, err := uvas3.StatObject(o)
+	if err != nil {
+		t.Fatalf("%s\n", err.Error())
+	}
+
+	// verify file size
+	sz := fileSize(goodSourceFile)
+	if sz != s.Size() {
+		t.Fatalf("Unexpected size. Expected %d, got %d\n", s.Size(), sz)
+	}
+}
+
+func TestPutFromBufferBadBucketName(t *testing.T) {
+	uvas3 := testSetup(t)
+
+	// get the object details
+	o := badBucketS3Object()
+	b := make([]byte, 0, 10)
+	err := uvas3.PutFromBuffer(o, b)
+	expected := ErrNotFound
+	if err != expected {
+		errorEvaluate(t, expected, err)
+	}
+}
+
 //
 // RestoreObject method invariant tests
 //
+
+func TestRestoreObjectHappyDay(t *testing.T) {
+	//uvas3 := testSetup(t)
+	// LATER
+}
+
+func TestRestoreObjectNotGlacier(t *testing.T) {
+	uvas3 := testSetup(t)
+
+	// get the object details
+	o := goodS3Object()
+	err := uvas3.RestoreObject(o, RESTORE_STANDARD, 1)
+	expected := ErrCannotRestore
+	if err != expected {
+		errorEvaluate(t, expected, err)
+	}
+}
+
+func TestRestoreObjectBadBucketName(t *testing.T) {
+	uvas3 := testSetup(t)
+
+	// get the object details
+	o := badBucketS3Object()
+	err := uvas3.RestoreObject(o, RESTORE_STANDARD, 1)
+	expected := ErrNotFound
+	if err != expected {
+		errorEvaluate(t, expected, err)
+	}
+}
+
+func TestRestoreObjectBadKeyName(t *testing.T) {
+	uvas3 := testSetup(t)
+
+	// get the object details
+	o := badKeyS3Object()
+	err := uvas3.RestoreObject(o, RESTORE_STANDARD, 1)
+	expected := ErrNotFound
+	if err != expected {
+		errorEvaluate(t, expected, err)
+	}
+}
+
+func TestRestoreObjectBadTier(t *testing.T) {
+	uvas3 := testSetup(t)
+
+	// get the object details
+	o := goodS3Object()
+	err := uvas3.RestoreObject(o, RESTORE_UNDEFINED, 1)
+	expected := ErrBadParameter
+	if err != expected {
+		errorEvaluate(t, expected, err)
+	}
+}
 
 //
 // DeleteObject method invariant tests
 //
 
 func TestDeleteObjectHappyDay(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// ensure we have a test object available and delete the local sink file
@@ -372,8 +436,6 @@ func TestDeleteObjectHappyDay(t *testing.T) {
 }
 
 func TestDeleteObjectBadBucketName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object
@@ -386,8 +448,6 @@ func TestDeleteObjectBadBucketName(t *testing.T) {
 }
 
 func TestDeleteObjectBadKeyName(t *testing.T) {
-
-	// test setup
 	uvas3 := testSetup(t)
 
 	// get the object
@@ -403,6 +463,14 @@ func TestDeleteObjectBadKeyName(t *testing.T) {
 //
 // helper methods
 //
+
+func testSetup(t *testing.T) UvaS3 {
+	uvas3, err := NewUvaS3(UvaS3Config{Logging: logging})
+	if err != nil {
+		t.Fatalf("%t\n", err)
+	}
+	return uvas3
+}
 
 func uploadTestObject(t *testing.T, uvas3 UvaS3, bucket string, key string) {
 
@@ -425,14 +493,6 @@ func objectExists(t *testing.T, uvas3 UvaS3, object UvaS3Object) bool {
 	return true // silly compiler
 }
 
-func testSetup(t *testing.T) UvaS3 {
-	uvas3, err := NewUvaS3(UvaS3Config{Logging: logging})
-	if err != nil {
-		t.Fatalf("%t\n", err)
-	}
-	return uvas3
-}
-
 func errorEvaluate(t *testing.T, expected error, actual error) {
 	if expected != nil {
 		if actual != nil {
@@ -444,6 +504,15 @@ func errorEvaluate(t *testing.T, expected error, actual error) {
 		// we know actual is not nill
 		t.Fatalf("Unexpected error. Expected (nill), got (%s)\n", actual.Error())
 	}
+}
+
+func bufferFromFile(t *testing.T, location string) []byte {
+
+	b, err := ioutil.ReadFile(location)
+	if err != nil {
+		t.Fatalf("%s\n", err.Error())
+	}
+	return b
 }
 
 func goodS3Object() UvaS3Object {
