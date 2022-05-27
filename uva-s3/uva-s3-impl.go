@@ -49,6 +49,12 @@ func newUvaS3(config UvaS3Config) (UvaS3, error) {
 	return &impl, nil
 }
 
+// factory for our S3 object interface
+func newUvaS3Object(bucketName string, keyName string) UvaS3Object {
+	// we use -1 as a sentinel value
+	return uvaS3ObjectImpl{bucket: bucketName, key: keyName, size: -1}
+}
+
 func (impl *uvaS3Impl) GetToFile(obj UvaS3Object, location string) error {
 
 	// validate inbound parameters

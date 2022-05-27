@@ -53,8 +53,7 @@ func NewUvaS3(config UvaS3Config) (UvaS3, error) {
 
 // NewUvaS3Object factory for our S3 object (really a helper)
 func NewUvaS3Object(bucketName string, keyName string) UvaS3Object {
-	// we use -1 as a sentinel value
-	return uvaS3ObjectImpl{bucket: bucketName, key: keyName, size: -1}
+	return newUvaS3Object(bucketName, keyName)
 }
 
 //
