@@ -334,7 +334,8 @@ func (impl *uvaS3Impl) StatObject(obj UvaS3Object) (UvaS3Object, error) {
 	o := uvaS3ObjectImpl{bucket: obj.BucketName(), key: obj.KeyName()}
 
 	// get object attributes
-	o.isGlacier = result.StorageClass != nil && strings.HasPrefix(*result.StorageClass, "GLACIER")
+	o.isGlacier = result.StorageClass != nil &&
+		(strings.HasPrefix(*result.StorageClass, "GLACIER") && *result.StorageClass != "GLACIER_IR")
 	o.isRestoring = result.Restore != nil && strings.HasPrefix(*result.Restore, "ongoing-request=\"true\"")
 	o.isRestored = result.Restore != nil && strings.HasPrefix(*result.Restore, "ongoing-request=\"false\"")
 	o.size = *result.ContentLength
