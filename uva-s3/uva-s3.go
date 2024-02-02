@@ -1,6 +1,9 @@
 package uva_s3
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // errors
 
@@ -20,12 +23,13 @@ type UvaS3 interface {
 }
 
 type UvaS3Object interface {
-	BucketName() string // the name of the containing bucket
-	KeyName() string    // the key
-	IsGlacier() bool    // is the object stored in glacier
-	IsRestoring() bool  // is the object currently being restored
-	IsRestored() bool   // has the object been restored
-	Size() int64        // object size
+	BucketName() string      // the name of the containing bucket
+	KeyName() string         // the key
+	IsGlacier() bool         // is the object stored in glacier
+	IsRestoring() bool       // is the object currently being restored
+	IsRestored() bool        // has the object been restored
+	Size() int64             // object size
+	LastModified() time.Time // last modified time
 
 	// more stuff
 }

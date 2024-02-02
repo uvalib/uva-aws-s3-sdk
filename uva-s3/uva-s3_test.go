@@ -57,6 +57,10 @@ func TestStatObjectStandardHappyDay(t *testing.T) {
 	if s.Size() == 0 {
 		t.Fatalf("Unexpected size value. Expected non-zero, got %d\n", s.Size())
 	}
+
+	if s.LastModified().IsZero() {
+		t.Fatalf("Unexpected last modified value. Expected non-zero, got %x\n", s.LastModified())
+	}
 }
 
 func TestStatObjectGlacierHappyDay(t *testing.T) {
@@ -91,6 +95,10 @@ func TestStatObjectGlacierHappyDay(t *testing.T) {
 
 	if s.Size() == 0 {
 		t.Fatalf("Unexpected size value. Expected non-zero, got %d\n", s.Size())
+	}
+
+	if s.LastModified().IsZero() {
+		t.Fatalf("Unexpected last modified value. Expected non-zero, got %x\n", s.LastModified())
 	}
 }
 

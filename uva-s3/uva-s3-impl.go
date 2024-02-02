@@ -24,12 +24,13 @@ type uvaS3Impl struct {
 
 // this is our s3 object implementation
 type uvaS3ObjectImpl struct {
-	bucket      string
-	key         string
-	isGlacier   bool  // is the object stored in glacier
-	isRestoring bool  // is the object currently being restored
-	isRestored  bool  // has the object been restored
-	size        int64 // object size
+	bucket       string
+	key          string
+	isGlacier    bool      // is the object stored in glacier
+	isRestoring  bool      // is the object currently being restored
+	isRestored   bool      // has the object been restored
+	size         int64     // object size
+	lastModified time.Time // last modified time
 }
 
 // factory for our S3 interface
@@ -339,6 +340,8 @@ func (impl *uvaS3Impl) StatObject(obj UvaS3Object) (UvaS3Object, error) {
 	o.isRestoring = result.Restore != nil && strings.HasPrefix(*result.Restore, "ongoing-request=\"true\"")
 	o.isRestored = result.Restore != nil && strings.HasPrefix(*result.Restore, "ongoing-request=\"false\"")
 	o.size = *result.ContentLength
+	o.lastModified = *result.LastModified
+
 	return o, nil
 }
 
@@ -505,6 +508,10 @@ func (impl uvaS3ObjectImpl) IsRestored() bool {
 
 func (impl uvaS3ObjectImpl) Size() int64 {
 	return impl.size
+}
+
+func (impl uvaS3ObjectImpl) LastModified() time.Time {
+	return impl.lastModified
 }
 
 //
